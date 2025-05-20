@@ -2,3 +2,4 @@ uv.lock
 .venv
 data/
 __pycache__
+.env

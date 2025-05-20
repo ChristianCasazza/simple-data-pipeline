@@ -109,8 +109,8 @@ def main(base_path=None):
     print(f"Using base output directory: {data_dir}")
 
     # Download parquet file if needed
-    parquet_url = "https://fastopendata.org/mta/raw/hourly_subway/year%3D2024/month%3D09/2024_09.parquet"
-    local_parquet_path = data_dir / "2024_09.parquet"
+    parquet_url = "https://fastopendata.org/mta_subway_hourly_ridership/year%3D2024/month%3D01/mta_subway_hourly_ridership_202401_1.parquet"
+    local_parquet_path = data_dir / "mta_subway_hourly_ridership.parquet"
     if not local_parquet_path.exists():
         print(f"Downloading Parquet file from {parquet_url}...")
         resp = requests.get(parquet_url)
