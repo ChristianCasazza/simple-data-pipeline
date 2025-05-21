@@ -8,16 +8,13 @@
 # ///
 
 """
-DuckDB Script (no pandas/pyarrow), writing all outputs (including downloaded parquet) into data/outputs.
+DuckDB Script (no pandas/pyarrow), writing all outputs (including downloaded parquet) into data/outputs under the current working directory.
 
 Usage:
-  uv run --python 3.11 duckdb_example.py /some/base/path
-  => Writes into /some/base/path/data/outputs/
-or if no base-path is given:
-  => Writes into (script’s dir)/data/outputs/
+  uv run --python 3.11 duckdb_example.py
+  => Writes into ./data/outputs/
 """
 
-import sys
 import requests
 from pathlib import Path
 import duckdb
@@ -71,19 +68,17 @@ class DuckDBWrapper:
         print(f"File written to: {out_path}")
 
 
-def main(base_path=None):
-    # Determine base path
-    if base_path is None and len(sys.argv) > 1:
-        base_path = sys.argv[1]
-    base_path = Path(base_path or Path(__file__).parent).resolve()
-
-    # OUTPUT dir for all files (downloaded and exported)
-    output_dir = base_path / "data" / "outputs"
+def main():
+    # Always write everything into ./data/outputs
+    output_dir = Path("data") / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Using output directory: {output_dir}")
 
-    # Download parquet into outputs
-    url = "https://fastopendata.org/mta_subway_hourly_ridership/year%3D2024/month%3D01/mta_subway_hourly_ridership_202401_1.parquet"
+    # Download parquet file into outputs
+    url = (
+        "https://fastopendata.org/mta_subway_hourly_ridership/"
+        "year%3D2024/month%3D01/mta_subway_hourly_ridership_202401_1.parquet"
+    )
     local_parquet = output_dir / "mta_subway_hourly_ridership.parquet"
     if not local_parquet.exists():
         print(f"Downloading Parquet file from {url}…")
@@ -92,10 +87,11 @@ def main(base_path=None):
         local_parquet.write_bytes(resp.content)
         print("Download complete!")
 
-    # Run queries
+    # Initialize DuckDB and register the downloaded file
     db = DuckDBWrapper()
     db.register_data([local_parquet], ["mta_hourly_subway"])
 
+    # Query 1: weekly riders
     q1 = """
         SELECT station_complex,
                DATE_TRUNC('week', transit_timestamp)::DATE AS week_start,
@@ -106,6 +102,7 @@ def main(base_path=None):
     """
     db.export_query(q1, file_type="csv", path=output_dir / "weekly_riders.csv")
 
+    # Query 2: ridership by borough
     q2 = """
         SELECT borough, SUM(ridership) AS total_ridership
         FROM mta_hourly_subway
@@ -114,6 +111,7 @@ def main(base_path=None):
     """
     db.export_query(q2, file_type="csv", path=output_dir / "ridership_by_borough.csv")
 
+    # Query 3: top stations
     q3 = """
         SELECT station_complex, SUM(ridership) AS total_ridership
         FROM mta_hourly_subway

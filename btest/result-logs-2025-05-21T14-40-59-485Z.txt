@@ -1,0 +1,8 @@
+Using output directory: data/outputs
+Downloading Parquet file from https://fastopendata.org/mta_subway_hourly_ridership/year%3D2024/month%3D01/mta_subway_hourly_ridership_202401_1.parquet…
+Download complete!
+File written to: data/outputs/weekly_riders.csv
+File written to: data/outputs/ridership_by_borough.csv
+File written to: data/outputs/top_stations.csv
+
+All queries executed and files saved successfully!
