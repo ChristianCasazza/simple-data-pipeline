@@ -1,14 +1,21 @@
-# Use official slim Python 3.11 image
-FROM python:3.11-slim
+FROM ubuntu:24.04
 
-# Set working directory
-WORKDIR /app
+RUN apt-get update && \
+    apt-get install -y \
+    python3-tk \
+    tk-dev \
+    clang \
+    python3-pip \
+    python3-venv \
+    libagg-dev \
+    libgl1 \
+    libglib2.0-0 \
+    ffmpeg \
+    && apt-get clean
 
-# Install dependencies
-RUN pip install --no-cache-dir duckdb requests
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy your script into the image
-COPY duckdb_example.py .
-
-# Default command: run the script
-ENTRYPOINT ["python", "duckdb_example.py"]
+COPY requirements.txt /tmp/
+RUN pip install --upgrade pip wheel
+RUN pip install -r /tmp/requirements.txt

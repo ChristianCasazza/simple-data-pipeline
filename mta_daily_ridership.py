@@ -1,39 +1,43 @@
-# File: mta_daily_ridership.py
+# File: mta_operations_statement.py
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
 #   "requests>=2.28.0",
 #   "polars>=0.18.0",
-#   "python-dotenv>=1.0.0",
 # ]
 # ///
 
 import os
 import sys
 import gc
-from dotenv import load_dotenv
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import polars as pl
 from typing import Any, Dict, List
 
-load_dotenv()
+# ── HARD-CODED TOKEN ──────────────────────────────────────────────────────────
+SOCRATA_API_TOKEN = "uHoP8dT0q1BTcacXLCcxrDp8z"
+# ───────────────────────────────────────────────────────────────────────────────
 
 
 class SocrataResource:
     def __init__(self, api_token: str):
         self.api_token = api_token
 
-    def fetch_data(self, endpoint: str, query_params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        retry_strategy = Retry(
+    def fetch_data(
+        self,
+        endpoint: str,
+        query_params: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        retry = Retry(
             total=5,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET"],
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(max_retries=retry)
         session = requests.Session()
         session.mount("http://", adapter)
         session.mount("https://", adapter)
@@ -43,76 +47,89 @@ class SocrataResource:
             resp.raise_for_status()
         finally:
             session.close()
-        if endpoint.endswith(".geojson"):
-            feats = resp.json().get("features", [])
-            return [f.get("properties", {}) for f in feats]
         return resp.json()
 
 
-def process_mta_daily_df(df: pl.DataFrame) -> (pl.DataFrame, list, list, str):
+def process_mta_operations_statement_df(df: pl.DataFrame) -> (pl.DataFrame, list, list):
     orig_cols = df.columns
-    df = df.rename({c: c.lower().replace(" ", "_") for c in df.columns})
+    df = df.rename({c: c.lower().replace(" ", "_").replace("-", "_") for c in df.columns})
+    df = df.rename({"month": "timestamp"})
     renamed_cols = df.columns
-    date_sample = "N/A"
-    if "date" in df.columns:
-        df = df.with_columns(
-            pl.col("date")
+
+    if "timestamp" in df.columns:
+        df = df.with_columns([
+            pl.col("timestamp")
               .str.strptime(pl.Date, "%Y-%m-%dT%H:%M:%S%.f", strict=False)
-              .alias("date")
-        )
-        date_sample = str(df.select("date").head(3).to_dicts())
-    old_new = [
-        ("subways_total_estimated_ridership", "subways_total_ridership"),
-        # … other renames …
+              .alias("timestamp")
+        ])
+
+    agency_sql = """
+    SELECT *,
+      CASE
+        WHEN agency = 'LIRR' THEN 'Long Island Rail Road'
+        WHEN agency = 'BT' THEN 'Bridges and Tunnels'
+        WHEN agency = 'FMTAC' THEN 'First Mutual Transportation Assurance Company'
+        WHEN agency = 'NYCT' THEN 'New York City Transit'
+        WHEN agency = 'SIR' THEN 'Staten Island Railway'
+        WHEN agency = 'MTABC' THEN 'MTA Bus Company'
+        WHEN agency = 'GCMCOC' THEN 'Grand Central Madison Concourse Operating Company'
+        WHEN agency = 'MNR' THEN 'Metro-North Railroad'
+        WHEN agency = 'MTAHQ' THEN 'Metropolitan Transportation Authority Headquarters'
+        WHEN agency = 'CD' THEN 'MTA Construction and Development'
+        WHEN agency = 'CRR' THEN 'Connecticut Railroads'
+        ELSE 'Unknown Agency'
+      END AS agency_full_name
+    FROM self
+    """
+    df = df.sql(agency_sql)
+
+    casts = [
+        ("fiscal_year", pl.Int64),
+        ("financial_plan_year", pl.Int64),
+        ("amount", pl.Float64),
+        ("scenario", pl.Utf8),
+        ("expense_type", pl.Utf8),
+        ("agency", pl.Utf8),
+        ("agency_full_name", pl.Utf8),
+        ("type", pl.Utf8),
+        ("subtype", pl.Utf8),
+        ("general_ledger", pl.Utf8),
     ]
-    exprs, drops = [], []
-    for old, new in old_new:
-        if old in df.columns:
-            exprs.append(pl.col(old).cast(pl.Float64).alias(new))
-            drops.append(old)
+    exprs = [pl.col(c).cast(t) for c, t in casts if c in df.columns]
     if exprs:
-        df = df.with_columns(exprs).drop(drops)
-    return df, orig_cols, renamed_cols, date_sample
+        df = df.with_columns(exprs)
+
+    return df, orig_cols, renamed_cols
 
 
 def main():
-    token = os.getenv("SOCRATA_API_TOKEN")
-    if not token:
-        print("ERROR: set SOCRATA_API_TOKEN in your environment", file=sys.stderr)
-        sys.exit(1)
+    token = SOCRATA_API_TOKEN  # always available
 
-    soc = SocrataResource(api_token=token)
-    endpoint = "https://data.ny.gov/resource/vxuj-8kew.json"
+    socrata = SocrataResource(api_token=token)
+    endpoint = "https://data.ny.gov/resource/yg77-3tkj.json"
     limit, offset = 500_000, 0
-    frames, last_orig, last_renamed, date_sample = [], [], [], "N/A"
 
+    frames, last_orig, last_renamed = [], [], []
     while True:
-        params = {
-            "$limit": limit,
-            "$offset": offset,
-            "$order": "Date ASC",
-            "$where": "Date >= '2020-03-01T00:00:00'",
-        }
-        data = soc.fetch_data(endpoint, params)
+        params = {"$limit": limit, "$offset": offset, "$order": "Month ASC"}
+        data = socrata.fetch_data(endpoint, params)
         if not data:
             break
         df = pl.DataFrame(data)
-        proc, orig, renamed, sample = process_mta_daily_df(df)
+        proc, orig, renamed = process_mta_operations_statement_df(df)
         frames.append(proc)
-        last_orig, last_renamed, date_sample = orig, renamed, sample
+        last_orig, last_renamed = orig, renamed
         offset += limit
         del df, proc, data
         gc.collect()
 
     final_df = pl.concat(frames, how="vertical") if frames else pl.DataFrame([])
-    # write to data/outputs/
     out_dir = os.path.join("data", "outputs")
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "mta_daily_ridership.parquet")
+    out_path = os.path.join(out_dir, "mta_operations_statement.parquet")
     final_df.write_parquet(out_path)
 
     print(f"Wrote {final_df.shape[0]} rows to {out_path}")
-    print("Sample dates:", date_sample)
     print("Original cols:", last_orig)
     print("Renamed cols:", last_renamed)
 

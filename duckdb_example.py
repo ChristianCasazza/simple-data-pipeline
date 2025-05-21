@@ -1,4 +1,3 @@
-# File: duckdb_example.py
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
@@ -9,7 +8,7 @@
 # ///
 
 """
-DuckDB Script (no pandas/pyarrow), writing all outputs into data/outputs.
+DuckDB Script (no pandas/pyarrow), writing all outputs (including downloaded parquet) into data/outputs.
 
 Usage:
   uv run --python 3.11 duckdb_example.py /some/base/path
@@ -78,18 +77,14 @@ def main(base_path=None):
         base_path = sys.argv[1]
     base_path = Path(base_path or Path(__file__).parent).resolve()
 
-    # Keep a raw data dir if you want
-    raw_dir = base_path / "data"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-
-    # OUTPUT dir for all CSV/parquet
+    # OUTPUT dir for all files (downloaded and exported)
     output_dir = base_path / "data" / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Using output directory: {output_dir}")
 
-    # Download parquet if needed
+    # Download parquet into outputs
     url = "https://fastopendata.org/mta_subway_hourly_ridership/year%3D2024/month%3D01/mta_subway_hourly_ridership_202401_1.parquet"
-    local_parquet = raw_dir / "mta_subway_hourly_ridership.parquet"
+    local_parquet = output_dir / "mta_subway_hourly_ridership.parquet"
     if not local_parquet.exists():
         print(f"Downloading Parquet file from {url}…")
         resp = requests.get(url)
